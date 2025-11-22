@@ -8,6 +8,7 @@ import numpy as np
 import random
 import io
 import zipfile
+import time  # <--- NEW IMPORT FOR ANIMATION
 from PIL import Image
 
 # ==============================================================
@@ -54,8 +55,8 @@ st.markdown("""
         color: white;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-
-    /* Secondary/Download Button Styling */
+    
+    /* Secondary Button Styling */
     [data-testid="stBaseButton-secondary"] {
         background-color: #ffffff;
         color: #555;
@@ -183,25 +184,14 @@ def convert_pil_to_bytes(img):
     return buf.getvalue()
 
 def create_zip_of_images(images, labels, seed_a, seed_b):
-    """
-    Compresses all images in the batch into a single ZIP file in memory.
-    """
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, img_tensor in enumerate(images):
-            # Convert to PIL
             img_pil = tensor_to_pil(img_tensor)
-            
-            # Create a filename
             file_name = f"Image_{i}_Class{labels}_Seed{seed_a}-{seed_b}.png"
-            
-            # Convert PIL to bytes
             img_bytes = io.BytesIO()
             img_pil.save(img_bytes, format="PNG")
-            
-            # Write to zip
             zf.writestr(file_name, img_bytes.getvalue())
-            
     return zip_buffer.getvalue()
 
 # ==============================================================
@@ -212,20 +202,17 @@ st.title("SAMD-IS CGAN Generator")
 st.markdown("<p style='text-align: center; color: #7F8C8D;'>Generate synthetic skin condition images and <b>morph</b> between them in real-time.</p>", unsafe_allow_html=True)
 st.divider()
 
-# Initialize model
 model = load_model()
 
-# --- Session State Initialization ---
 if 'seed_a' not in st.session_state:
     st.session_state.seed_a = 42
 if 'seed_b' not in st.session_state:
     st.session_state.seed_b = 100
 
 if model:
-    # --- Sidebar Controls ---
+    # --- Sidebar ---
     st.sidebar.header("Settings")
     
-    # 1. Class Selection
     class_names = {
         0: "Light Skin - Psoriasis",
         1: "Light Skin - Eczema",
@@ -242,132 +229,145 @@ if model:
         format_func=lambda x: class_names.get(x, f"Class {x}")
     )
     
-    # 2. Batch Size
     num_images = st.sidebar.slider("Number of Images", 1, 8, 4)
     
     st.sidebar.divider()
     st.sidebar.subheader("Morphing Controls")
     
-    # 3. The Generate Button
     if st.sidebar.button("Generate New Samples"):
         st.session_state.seed_a = random.randint(0, 10000)
         st.session_state.seed_b = random.randint(0, 10000)
     
-    # 4. Seeds
     col_seed1, col_seed2 = st.sidebar.columns(2)
     with col_seed1:
         seed_a = st.number_input("Start Seed", key='seed_a')
     with col_seed2:
         seed_b = st.number_input("Target Seed", key='seed_b')
         
-    # 5. The Morph Slider
     alpha = st.sidebar.slider(
         "Morph Factor", 
         min_value=0.0, 
         max_value=1.0, 
         value=0.0, 
         step=0.05,
-        help="Slide to morph between the Start and Target seeds."
+        help="Slide to morph between Start and Target."
     )
 
-    # --- Main Generation Logic ---
+    # ⬇️ NEW ANIMATION BUTTON
+    play_anim = st.sidebar.button("Play Morph Animation")
+
+    # --- Generation Logic ---
     
-    # Generate Start Noise (Batch A)
+    # Prepare noise vectors
     torch.manual_seed(seed_a)
     noise_a = torch.randn(num_images, LATENT_DIM, device=device)
     
-    # Generate Target Noise (Batch B)
     torch.manual_seed(seed_b)
     noise_b = torch.randn(num_images, LATENT_DIM, device=device)
-    
-    # Interpolate
-    noise_interp = (1 - alpha) * noise_a + alpha * noise_b
-    
-    # Create Labels
     labels = torch.full((num_images,), label_index, dtype=torch.long, device=device)
-    
-    # Run Model for Current State
-    with torch.no_grad():
-        generated_imgs = model(noise_interp, labels)
-    
-    # --- Display Results ---
-    st.markdown(f"### Results: <span style='color:#2E86C1'>{class_names.get(label_index, f'Class {label_index}')}</span>", unsafe_allow_html=True)
-    
-    if alpha == 0.0:
-        st.caption(f"Showing pure **Start Seed ({seed_a})**")
-    elif alpha == 1.0:
-        st.caption(f"Showing pure **Target Seed ({seed_b})**")
-    else:
-        st.caption(f"Morphing: **{int(alpha*100)}%** transition from Seed {seed_a} to {seed_b}")
 
-    # --- TABS FOR VIEW MODES ---
-    tab_grid, tab_single = st.tabs(["Grid View", "Single Focus"])
-
-    # --- TAB 1: GRID VIEW ---
-    with tab_grid:
-        # Add Download All Button at the top
-        zip_bytes = create_zip_of_images(generated_imgs, label_index, seed_a, seed_b)
-        st.download_button(
-            label="Download All Images (ZIP)",
-            data=zip_bytes,
-            file_name=f"Batch_Class{label_index}_Seed{seed_a}-{seed_b}.zip",
-            mime="application/zip",
-        )
+    # --- Display Logic ---
+    
+    # If Animation is clicked, we hijack the main view for a loop
+    if play_anim:
+        st.info(f"Animating Morph from Seed {seed_a} to {seed_b}...")
         
-        cols = st.columns(4)
-        for i, img_tensor in enumerate(generated_imgs):
-            img_pil = tensor_to_pil(img_tensor)
-            with cols[i % 4]:
-                st.image(img_pil, use_container_width=True)
-
-    # --- TAB 2: SINGLE FOCUS ---
-    with tab_single:
-        col_select, col_display = st.columns([1, 3])
+        # Create a placeholder that we can overwrite continuously
+        anim_placeholder = st.empty()
         
-        with col_select:
-            st.info("Select an image from the batch to inspect its specific morphing path.")
-            selected_idx = st.selectbox("Choose Image Number", range(num_images))
-        
-        with col_display:
-            # We need to generate the Start and Target versions just for this specific index
-            # to show the comparison
+        # Animation Loop (0.0 to 1.0 in 20 steps)
+        for t in np.linspace(0, 1, 20):
+            # 1. Interpolate
+            n_interp = (1 - t) * noise_a + t * noise_b
             
-            # Get specific noise vectors for this index
-            n_a = noise_a[selected_idx].unsqueeze(0)
-            n_b = noise_b[selected_idx].unsqueeze(0)
-            n_curr = noise_interp[selected_idx].unsqueeze(0)
-            l_single = torch.full((1,), label_index, dtype=torch.long, device=device)
-            
+            # 2. Generate
             with torch.no_grad():
-                img_start = model(n_a, l_single)
-                img_target = model(n_b, l_single)
-                img_current = model(n_curr, l_single)
+                imgs = model(n_interp, labels)
+                
+            # 3. Display Frame
+            with anim_placeholder.container():
+                st.markdown(f"**Morphing: {int(t*100)}%**")
+                cols = st.columns(4)
+                for i, img_t in enumerate(imgs):
+                    with cols[i % 4]:
+                        st.image(tensor_to_pil(img_t), use_container_width=True)
+            
+            # 4. Wait a tiny bit (0.05s = 20fps roughly)
+            time.sleep(0.05)
+            
+        st.success("Animation Complete!")
+        
+    else:
+        # STATIC VIEW (Normal Slider Mode)
+        # Interpolate based on slider
+        noise_interp = (1 - alpha) * noise_a + alpha * noise_b
+        
+        with torch.no_grad():
+            generated_imgs = model(noise_interp, labels)
 
-            # Display Comparison
-            c1, c2, c3 = st.columns(3)
+        st.markdown(f"### Results: <span style='color:#2E86C1'>{class_names.get(label_index, f'Class {label_index}')}</span>", unsafe_allow_html=True)
+        
+        if alpha == 0.0:
+            st.caption(f"Showing pure **Start Seed ({seed_a})**")
+        elif alpha == 1.0:
+            st.caption(f"Showing pure **Target Seed ({seed_b})**")
+        else:
+            st.caption(f"Morphing: **{int(alpha*100)}%** transition")
+
+        # Tabs
+        tab_grid, tab_single = st.tabs(["Grid View", "Single Focus"])
+
+        with tab_grid:
+            # Download All
+            zip_bytes = create_zip_of_images(generated_imgs, label_index, seed_a, seed_b)
+            st.download_button(
+                label="Download All Images (ZIP)",
+                data=zip_bytes,
+                file_name=f"Batch_Class{label_index}_Seed{seed_a}-{seed_b}.zip",
+                mime="application/zip",
+            )
             
-            with c1:
-                st.caption("Start (Seed A)")
-                st.image(tensor_to_pil(img_start[0]), use_container_width=True)
+            cols = st.columns(4)
+            for i, img_tensor in enumerate(generated_imgs):
+                img_pil = tensor_to_pil(img_tensor)
+                with cols[i % 4]:
+                    st.image(img_pil, use_container_width=True)
+
+        with tab_single:
+            col_select, col_display = st.columns([1, 3])
+            with col_select:
+                st.info("Select an image to inspect.")
+                selected_idx = st.selectbox("Choose Image Number", range(num_images))
             
-            with c2:
-                st.caption("Current Morph")
-                # Make the main one larger
-                main_pil = tensor_to_pil(img_current[0])
-                st.image(main_pil, use_container_width=True)
+            with col_display:
+                # Generate specific morph comparison
+                n_a_s = noise_a[selected_idx].unsqueeze(0)
+                n_b_s = noise_b[selected_idx].unsqueeze(0)
+                n_c_s = noise_interp[selected_idx].unsqueeze(0)
+                l_s = torch.full((1,), label_index, dtype=torch.long, device=device)
                 
-                # Download for main image
-                st.download_button(
-                    label="Download Current Morph",
-                    data=convert_pil_to_bytes(main_pil),
-                    file_name=f"Focus_Img_{selected_idx}_Morph{int(alpha*100)}.png",
-                    mime="image/png",
-                    key=f"dl_focus_{selected_idx}"
-                )
-                
-            with c3:
-                st.caption("Target (Seed B)")
-                st.image(tensor_to_pil(img_target[0]), use_container_width=True)
+                with torch.no_grad():
+                    i_a = model(n_a_s, l_s)
+                    i_b = model(n_b_s, l_s)
+                    i_c = model(n_c_s, l_s)
+
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.caption("Start")
+                    st.image(tensor_to_pil(i_a[0]), use_container_width=True)
+                with c2:
+                    st.caption("Current Morph")
+                    main_pil = tensor_to_pil(i_c[0])
+                    st.image(main_pil, use_container_width=True)
+                    st.download_button(
+                        label="Download Current Morph",
+                        data=convert_pil_to_bytes(main_pil),
+                        file_name=f"Focus_Img_{selected_idx}.png",
+                        mime="image/png"
+                    )
+                with c3:
+                    st.caption("Target")
+                    st.image(tensor_to_pil(i_b[0]), use_container_width=True)
 
 # --- Footer ---
 st.sidebar.markdown("---")
