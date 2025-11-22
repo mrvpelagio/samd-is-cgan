@@ -372,4 +372,4 @@ if model:
 # --- Footer ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Created by:**")
-st.sidebar.caption("Maria Rafaela Pelagio\nSophia Danielle Salta\nVeneza Vielle Vergara")
+st.sidebar.caption("Maria Rafaela Pelagio \n         Sophia Danielle Salta\n Veneza Vielle Vergara")
