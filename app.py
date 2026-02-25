@@ -274,7 +274,7 @@ if model:
         max_value=1.0, 
         value=0.0, 
         step=0.05,
-        help="Slide to morph between the Start and Target seeds."
+        help="Slide to morph between the Start and Target seeds. This is a new version of the app."
     )
 
     # --- Main Generation Logic ---
