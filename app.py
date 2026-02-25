@@ -10,9 +10,7 @@ import io
 import zipfile
 from PIL import Image
 
-# ==============================================================
-# 0. PAGE CONFIG & STYLING
-# ==============================================================
+
 st.set_page_config(
     page_title="SAMD-IS GAN Generator",
     layout="wide",
@@ -204,6 +202,15 @@ def create_zip_of_images(images, labels, seed_a, seed_b):
             
     return zip_buffer.getvalue()
 
+def image_quality_score(img_tensor):
+    variance_score = torch.var(img_tensor)
+    grad_x = img_tensor[:, :, 1:, :] - img_tensor[:, :, :-1, :]
+    grad_y = img_tensor[:, :, :, 1:] - img_tensor[:, :, :, :-1]
+    edge_score = torch.mean(torch.abs(grad_x) + torch.mean(torch.abs(grad_y)))
+
+    return variance_score + edge_score
+
+
 # ==============================================================
 # 3. UI LAYOUT
 # ==============================================================
@@ -271,24 +278,35 @@ if model:
     )
 
     # --- Main Generation Logic ---
-    
+    internal_batch = 32
+
     # Generate Start Noise (Batch A)
     torch.manual_seed(seed_a)
-    noise_a = torch.randn(num_images, LATENT_DIM, device=device)
+    noise_a = torch.randn(internal_batch, LATENT_DIM, device=device)
     
     # Generate Target Noise (Batch B)
     torch.manual_seed(seed_b)
-    noise_b = torch.randn(num_images, LATENT_DIM, device=device)
+    noise_b = torch.randn(internal_batch, LATENT_DIM, device=device)
     
     # Interpolate
     noise_interp = (1 - alpha) * noise_a + alpha * noise_b
     
     # Create Labels
-    labels = torch.full((num_images,), label_index, dtype=torch.long, device=device)
+    labels = torch.full((internal_batch,), label_index, dtype=torch.long, device=device)
     
     # Run Model for Current State
     with torch.no_grad():
         generated_imgs = model(noise_interp, labels)
+
+    scores = []
+
+    for i in range(generated_imgs.shape[0]):
+        score = image_quality_score(generated_imgs[i].unsqueeze(0))
+        scores.append((score.item(), i))
+
+    scores.sort(reverse=True)
+    best_indices = [idx for _, idx in scores[:num_images]]
+    generated_imgs = generated_imgs[best_indices]
     
     # --- Display Results ---
     st.markdown(f"### Results: <span style='color:#2E86C1'>{class_names.get(label_index, f'Class {label_index}')}</span>", unsafe_allow_html=True)
@@ -368,6 +386,9 @@ if model:
             with c3:
                 st.caption("Target (Seed B)")
                 st.image(tensor_to_pil(img_target[0]), use_container_width=True)
+
+
+
 
 # --- Footer ---
 st.sidebar.markdown("---")
