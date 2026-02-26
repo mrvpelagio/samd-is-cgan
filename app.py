@@ -202,21 +202,24 @@ def create_zip_of_images(images, labels, seed_a, seed_b):
             
     return zip_buffer.getvalue()
 
-def image_quality_score(img_tensor):
+def image_quality_score(img_tensor, label):
     variance_score = torch.var(img_tensor)
 
     grad_x = img_tensor[:, :, 1:, :] - img_tensor[:, :, :-1, :]
     grad_y = img_tensor[:, :, :, 1:] - img_tensor[:, :, :, :-1]
-
     edge_score = torch.mean(torch.abs(grad_x)) + torch.mean(torch.abs(grad_y))
 
-    return variance_score + edge_score
+    mean_brightness = torch.mean(torch.abs(grad_x)) + torch.mean(torch.abs(grad_y))
+
+    if label in [2,5]:
+        smoothness = -edge_score
+        brightness_penalty = -torch.abs(mean_brightness)
+        return smoothness + brightness_penalty
+    else: 
+        return variance_score + edge_score
 
 
-# ==============================================================
-# 3. UI LAYOUT
-# ==============================================================
-
+# ui
 st.title("SAMD-IS CGAN Generator")
 st.markdown("<p style='text-align: center; color: #7F8C8D;'>Generate synthetic skin condition images and <b>morph</b> between them in real-time.</p>", unsafe_allow_html=True)
 st.divider()
@@ -315,7 +318,7 @@ if label_index not in normal_labels: # apply cherry picking
     scores = []
 
     for i in range(generated_imgs.shape[0]):
-        score = image_quality_score(generated_imgs[i].unsqueeze(0))
+        score = image_quality_score(generated_imgs[i].unsqueeze(0), label_index)
         scores.append((score.item(), i))
 
     scores.sort(reverse=True)
