@@ -226,6 +226,13 @@ def color_std(img_tensor):
 
     return mean_std
 
+def healthy_score(img_tensor):
+    spatial_std = torch.std(img_tensor, dim=[2,3]).mean()
+    brightness = torch.mean(img_tensor)
+    brightness_penalty =torch.abs(brightness)
+
+    return spatial_std + 0.3 * brightness_penalty
+
 
 # ui
 st.title("SAMD-IS CGAN Generator")
@@ -332,12 +339,16 @@ if label_index not in normal_labels: # apply cherry picking
     scores.sort(reverse=True)
     best_indices = [idx for _, idx in scores[:num_images]]
     generated_imgs = generated_imgs[best_indices]
+    noise_a = noise_a[best_indices]
+    noise_b = noise_b[best_indices]
+    noise_interp = noise_interp[best_indices]
+
 else: # healthy 
     scores = []
 
     for i in range(generated_imgs.shape[0]):
         img = generated_imgs[i].unsqueeze(0)
-        score = color_std(img)
+        score = healthy_score(img)
         scores.append((score.item(), i))
 
     scores.sort()
