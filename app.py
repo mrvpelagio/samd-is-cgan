@@ -217,6 +217,14 @@ def image_quality_score(img_tensor, label):
         return smoothness + brightness_penalty
     else: 
         return variance_score + edge_score
+    
+def color_std(img_tensor):
+    # img tensor shape: (1, 3, H, W)
+    
+    spatial_std = torch.std(img_tensor, dim=[2,3])
+    mean_std = torch.mean(spatial_std)
+
+    return mean_std
 
 
 # ui
@@ -325,7 +333,20 @@ if label_index not in normal_labels: # apply cherry picking
     best_indices = [idx for _, idx in scores[:num_images]]
     generated_imgs = generated_imgs[best_indices]
 else: # healthy 
-    generated_imgs = generated_imgs[:num_images]
+    scores = []
+
+    for i in range(generated_imgs.shape[0]):
+        img = generated_imgs[i].unsqueeze(0)
+        score = color_std(img)
+        scores.append((score.item(), i))
+
+    scores.sort()
+    best_indices = [idx for _, idx in scores[:num_images]]
+
+    generated_imgs = generated_imgs[best_indices]
+    noise_a = noise_a[best_indices]
+    noise_b = noise_b[best_indices]
+    noise_interp = noise_interp[best_indices]
 
 
     # --- Display Results ---
