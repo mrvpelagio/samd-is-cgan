@@ -204,9 +204,11 @@ def create_zip_of_images(images, labels, seed_a, seed_b):
 
 def image_quality_score(img_tensor):
     variance_score = torch.var(img_tensor)
+
     grad_x = img_tensor[:, :, 1:, :] - img_tensor[:, :, :-1, :]
     grad_y = img_tensor[:, :, :, 1:] - img_tensor[:, :, :, :-1]
-    edge_score = torch.mean(torch.abs(grad_x) + torch.mean(torch.abs(grad_y)))
+
+    edge_score = torch.mean(torch.abs(grad_x)) + torch.mean(torch.abs(grad_y))
 
     return variance_score + edge_score
 
@@ -280,6 +282,7 @@ if model:
     # --- Main Generation Logic ---
     internal_batch = 32
 
+    normal_labels = [2, 5] # healthy skin won't be applied cherry picking 
     # Generate Start Noise (Batch A)
     torch.manual_seed(seed_a)
     noise_a = torch.randn(internal_batch, LATENT_DIM, device=device)
@@ -298,6 +301,17 @@ if model:
     with torch.no_grad():
         generated_imgs = model(noise_interp, labels)
 
+#    scores = []
+
+#    for i in range(generated_imgs.shape[0]):
+#        score = image_quality_score(generated_imgs[i].unsqueeze(0))
+#        scores.append((score.item(), i))
+
+#    scores.sort(reverse=True)
+#    best_indices = [idx for _, idx in scores[:num_images]]
+#    generated_imgs = generated_imgs[best_indices]
+
+if label_index not in normal_labels: # apply cherry picking
     scores = []
 
     for i in range(generated_imgs.shape[0]):
@@ -307,7 +321,10 @@ if model:
     scores.sort(reverse=True)
     best_indices = [idx for _, idx in scores[:num_images]]
     generated_imgs = generated_imgs[best_indices]
-    
+else: # healthy 
+    generated_imgs = generated_imgs[:num_images]
+
+
     # --- Display Results ---
     st.markdown(f"### Results: <span style='color:#2E86C1'>{class_names.get(label_index, f'Class {label_index}')}</span>", unsafe_allow_html=True)
     
