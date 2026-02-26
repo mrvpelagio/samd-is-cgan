@@ -326,83 +326,83 @@ else: # healthy
 
 
     # --- Display Results ---
-    st.markdown(f"### Results: <span style='color:#2E86C1'>{class_names.get(label_index, f'Class {label_index}')}</span>", unsafe_allow_html=True)
+st.markdown(f"### Results: <span style='color:#2E86C1'>{class_names.get(label_index, f'Class {label_index}')}</span>", unsafe_allow_html=True)
     
-    if alpha == 0.0:
-        st.caption(f"Showing pure **Start Seed ({seed_a})**")
-    elif alpha == 1.0:
-        st.caption(f"Showing pure **Target Seed ({seed_b})**")
-    else:
-        st.caption(f"Morphing: **{int(alpha*100)}%** transition from Seed {seed_a} to {seed_b}")
+if alpha == 0.0:
+    st.caption(f"Showing pure **Start Seed ({seed_a})**")
+elif alpha == 1.0:
+    st.caption(f"Showing pure **Target Seed ({seed_b})**")
+else:
+    st.caption(f"Morphing: **{int(alpha*100)}%** transition from Seed {seed_a} to {seed_b}")
 
     # --- TABS FOR VIEW MODES ---
-    tab_grid, tab_single = st.tabs(["Grid View", "Single Focus"])
+tab_grid, tab_single = st.tabs(["Grid View", "Single Focus"])
 
     # --- TAB 1: GRID VIEW ---
-    with tab_grid:
+with tab_grid:
         # Add Download All Button at the top
-        zip_bytes = create_zip_of_images(generated_imgs, label_index, seed_a, seed_b)
-        st.download_button(
-            label="Download All Images (ZIP)",
-            data=zip_bytes,
-            file_name=f"Batch_Class{label_index}_Seed{seed_a}-{seed_b}.zip",
-            mime="application/zip",
-        )
+    zip_bytes = create_zip_of_images(generated_imgs, label_index, seed_a, seed_b)
+    st.download_button(
+        label="Download All Images (ZIP)",
+        data=zip_bytes,
+        file_name=f"Batch_Class{label_index}_Seed{seed_a}-{seed_b}.zip",
+        mime="application/zip",
+    )
         
-        cols = st.columns(4)
-        for i, img_tensor in enumerate(generated_imgs):
-            img_pil = tensor_to_pil(img_tensor)
-            with cols[i % 4]:
-                st.image(img_pil, use_container_width=True)
+    cols = st.columns(4)
+    for i, img_tensor in enumerate(generated_imgs):
+        img_pil = tensor_to_pil(img_tensor)
+        with cols[i % 4]:
+            st.image(img_pil, use_container_width=True)
 
     # --- TAB 2: SINGLE FOCUS ---
-    with tab_single:
-        col_select, col_display = st.columns([1, 3])
+with tab_single:
+    col_select, col_display = st.columns([1, 3])
         
-        with col_select:
-            st.info("Select an image from the batch to inspect its specific morphing path.")
-            selected_idx = st.selectbox("Choose Image Number", range(num_images))
-        
-        with col_display:
-            # We need to generate the Start and Target versions just for this specific index
-            # to show the comparison
+    with col_select:
+        st.info("Select an image from the batch to inspect its specific morphing path.")
+        selected_idx = st.selectbox("Choose Image Number", range(num_images))
+    
+    with col_display:
+        # We need to generate the Start and Target versions just for this specific index
+        # to show the comparison
             
             # Get specific noise vectors for this index
-            n_a = noise_a[selected_idx].unsqueeze(0)
-            n_b = noise_b[selected_idx].unsqueeze(0)
-            n_curr = noise_interp[selected_idx].unsqueeze(0)
-            l_single = torch.full((1,), label_index, dtype=torch.long, device=device)
+        n_a = noise_a[selected_idx].unsqueeze(0)
+        n_b = noise_b[selected_idx].unsqueeze(0)
+        n_curr = noise_interp[selected_idx].unsqueeze(0)
+        l_single = torch.full((1,), label_index, dtype=torch.long, device=device)
             
-            with torch.no_grad():
-                img_start = model(n_a, l_single)
-                img_target = model(n_b, l_single)
-                img_current = model(n_curr, l_single)
+        with torch.no_grad():
+            img_start = model(n_a, l_single)
+            img_target = model(n_b, l_single)
+            img_current = model(n_curr, l_single)
 
             # Display Comparison
             c1, c2, c3 = st.columns(3)
             
-            with c1:
-                st.caption("Start (Seed A)")
-                st.image(tensor_to_pil(img_start[0]), use_container_width=True)
+        with c1:
+            st.caption("Start (Seed A)")
+            st.image(tensor_to_pil(img_start[0]), use_container_width=True)
             
-            with c2:
-                st.caption("Current Morph")
-                # Make the main one larger
-                main_pil = tensor_to_pil(img_current[0])
-                st.image(main_pil, use_container_width=True)
+        with c2:
+            st.caption("Current Morph")
+            # Make the main one larger
+            main_pil = tensor_to_pil(img_current[0])
+            st.image(main_pil, use_container_width=True)
                 
                 # Download for main image
-                st.download_button(
-                    label="Download Current Morph",
-                    data=convert_pil_to_bytes(main_pil),
-                    file_name=f"Focus_Img_{selected_idx}_Morph{int(alpha*100)}.png",
-                    mime="image/png",
-                    key=f"dl_focus_{selected_idx}"
-                )
+            st.download_button(
+                label="Download Current Morph",
+                data=convert_pil_to_bytes(main_pil),
+                file_name=f"Focus_Img_{selected_idx}_Morph{int(alpha*100)}.png",
+                mime="image/png",
+                key=f"dl_focus_{selected_idx}"
+            )
                 
-            with c3:
-                st.caption("Target (Seed B)")
-                st.image(tensor_to_pil(img_target[0]), use_container_width=True)
+        with c3:
+            st.caption("Target (Seed B)")
+            st.image(tensor_to_pil(img_target[0]), use_container_width=True)
 
 
 
