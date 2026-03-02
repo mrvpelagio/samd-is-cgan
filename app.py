@@ -146,7 +146,7 @@ class Generator(nn.Module):
 # 2. APP CONFIGURATION
 # ==============================================================
 
-MODEL_PATH = "generator.pth"  
+MODEL_PATH = "g_ema.pth"  
 LATENT_DIM = 100
 NUM_CLASSES = 6 
 IMG_SIZE = 128
