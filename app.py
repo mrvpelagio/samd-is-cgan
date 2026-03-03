@@ -146,7 +146,7 @@ class Generator(nn.Module):
 # 2. APP CONFIGURATION
 # ==============================================================
 
-MODEL_PATH = "g_ema.pth"  
+MODEL_PATH = "G_raw_epoch500.pth"  
 LATENT_DIM = 100
 NUM_CLASSES = 6 
 IMG_SIZE = 128
