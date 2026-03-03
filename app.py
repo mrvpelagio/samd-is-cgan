@@ -203,20 +203,79 @@ def create_zip_of_images(images, labels, seed_a, seed_b):
     return zip_buffer.getvalue()
 
 def image_quality_score(img_tensor, label):
-    variance_score = torch.var(img_tensor)
+    """
+    img_tensor shape: (1, 3, H, W), values in [-1, 1]
+    Labels:
+        0: Light/Psoriasis   1: Light/Eczema   2: Light/Healthy
+        3: Brown/Psoriasis   4: Brown/Eczema   5: Brown/Healthy
+    """
+    # Denormalize to [0, 1]
+    img = (img_tensor + 1) / 2.0  # (1, 3, H, W)
+    r, g, b = img[:, 0], img[:, 1], img[:, 2]
 
-    grad_x = img_tensor[:, :, 1:, :] - img_tensor[:, :, :-1, :]
-    grad_y = img_tensor[:, :, :, 1:] - img_tensor[:, :, :, :-1]
+    # ── Shared metrics ──────────────────────────────────────────
+    # Texture richness (high = more detail)
+    grad_x = img[:, :, 1:, :] - img[:, :, :-1, :]
+    grad_y = img[:, :, :, 1:] - img[:, :, :, :-1]
     edge_score = torch.mean(torch.abs(grad_x)) + torch.mean(torch.abs(grad_y))
 
-    mean_brightness = torch.mean(torch.abs(grad_x)) + torch.mean(torch.abs(grad_y))
+    # Color variance (high = not a blob/mode collapse)
+    spatial_std = torch.std(img, dim=[2, 3]).mean()
 
-    if label in [2,5]:
-        smoothness = -edge_score
-        brightness_penalty = -torch.abs(mean_brightness)
-        return smoothness + brightness_penalty
-    else: 
-        return variance_score + edge_score
+    # Avoid pure black/white artifacts
+    mean_brightness = torch.mean(img)
+    brightness_penalty = torch.abs(mean_brightness - 0.45)  # penalize if too dark or bright
+
+    # Avoid black border artifacts — corners should not be near-black
+    corner_tl = img[:, :, :8, :8].mean()
+    corner_br = img[:, :, -8:, -8:].mean()
+    black_border_penalty = torch.exp(-10 * (corner_tl + corner_br) / 2)  # high if corners are black
+
+    # ── Disease-specific scoring ─────────────────────────────────
+
+    if label in [0, 3]:  # Psoriasis (Light or Brown)
+        # Psoriasis: silvery-white scaly patches → high red channel, high contrast
+        redness = torch.mean(r) - torch.mean(g)          # red dominance
+        contrast = torch.std(img, dim=[2, 3]).max()       # high local contrast
+        scale_texture = edge_score                         # scaly = high edges
+        score = (
+            2.0 * redness +
+            2.0 * scale_texture +
+            1.5 * contrast +
+            1.0 * spatial_std -
+            3.0 * brightness_penalty -
+            2.0 * black_border_penalty
+        )
+
+    elif label in [1, 4]:  # Eczema (Light or Brown)
+        # Eczema: red inflamed patches, weeping/crusty texture
+        redness = torch.mean(r) - 0.5 * torch.mean(b)    # red, not blue
+        inflammation = torch.mean(r) - torch.mean(g)      # redness vs green
+        texture = edge_score                               # rough texture
+        score = (
+            2.5 * redness +
+            2.0 * inflammation +
+            1.5 * texture +
+            1.0 * spatial_std -
+            3.0 * brightness_penalty -
+            2.0 * black_border_penalty
+        )
+
+    elif label in [2, 5]:  # Healthy (Light or Brown)
+        # Healthy: smooth, even tone, no harsh edges
+        smoothness = -edge_score                           # low edges = smooth
+        evenness = -spatial_std                            # even color distribution
+        score = (
+            2.0 * smoothness +
+            1.5 * evenness -
+            3.0 * brightness_penalty -
+            2.0 * black_border_penalty
+        )
+
+    else:
+        score = spatial_std + edge_score
+
+    return score
     
 def color_std(img_tensor):
     # img tensor shape: (1, 3, H, W)
@@ -329,36 +388,20 @@ if model:
 #    best_indices = [idx for _, idx in scores[:num_images]]
 #    generated_imgs = generated_imgs[best_indices]
 
-if label_index not in normal_labels: # apply cherry picking
-    scores = []
 
-    for i in range(generated_imgs.shape[0]):
-        score = image_quality_score(generated_imgs[i].unsqueeze(0), label_index)
-        scores.append((score.item(), i))
+# ── REPLACE your entire cherry picking section with this ──
 
-    scores.sort(reverse=True)
-    best_indices = [idx for _, idx in scores[:num_images]]
-    generated_imgs = generated_imgs[best_indices]
-    noise_a = noise_a[best_indices]
-    noise_b = noise_b[best_indices]
-    noise_interp = noise_interp[best_indices]
+scores = []
+for i in range(generated_imgs.shape[0]):
+    score = image_quality_score(generated_imgs[i].unsqueeze(0), label_index)
+    scores.append((score.item(), i))
 
-else: # healthy 
-    scores = []
-
-    for i in range(generated_imgs.shape[0]):
-        img = generated_imgs[i].unsqueeze(0)
-        score = healthy_score(img)
-        scores.append((score.item(), i))
-
-    scores.sort()
-    best_indices = [idx for _, idx in scores[:num_images]]
-
-    generated_imgs = generated_imgs[best_indices]
-    noise_a = noise_a[best_indices]
-    noise_b = noise_b[best_indices]
-    noise_interp = noise_interp[best_indices]
-
+scores.sort(reverse=True)
+best_indices = [idx for _, idx in scores[:num_images]]
+generated_imgs = generated_imgs[best_indices]
+noise_a = noise_a[best_indices]
+noise_b = noise_b[best_indices]
+noise_interp = noise_interp[best_indices]
 
     # --- Display Results ---
 st.markdown(f"### Results: <span style='color:#2E86C1'>{class_names.get(label_index, f'Class {label_index}')}</span>", unsafe_allow_html=True)
