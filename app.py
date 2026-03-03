@@ -357,7 +357,7 @@ if model:
     )
 
     # --- Main Generation Logic ---
-    internal_batch = 32
+    internal_batch = 100
 
     normal_labels = [2, 5] # healthy skin won't be applied cherry picking 
     # Generate Start Noise (Batch A)
