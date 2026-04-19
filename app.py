@@ -272,9 +272,9 @@ class ColorDiscriminator(Discriminator):
 # ==============================================================
 
 GENERATOR_PATH = "G_epoch300.pth"
-D_TEXTURE_PATH = "D_texture_finetuned.pth"
-D_STRUCTURE_PATH = "D_structure_finetuned.pth"
-D_COLOR_PATH = "D_color_finetuned.pth"
+D_TEXTURE_PATH = "D_texture_epoch500.pth"
+D_STRUCTURE_PATH = "D_structure_epoch500.pth"
+D_COLOR_PATH = "D_color_epoch500.pth"
 CLASSIFIER_PATH = "efficientnet_baseline_best.pth" 
 
 LATENT_DIM = 100
