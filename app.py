@@ -297,10 +297,10 @@ CLASSIFIER_PATH = "efficientnet_baseline_best.pth"
 CLASSIFIER_NUM_CLASSES = 4
 
 CLASSIFIER_CLASS_NAMES = {
-    0: "Class 0",
-    1: "Class 1",
-    2: "Class 2",
-    3: "Class 3",
+    0: "Brown Eczema",
+    1: "Brown Psoriasis",
+    2: "Light Eczema",
+    3: "Light Psoriasis",
 }
 
 
