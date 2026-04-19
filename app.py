@@ -10,10 +10,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
+from torchvision import transforms
+from torchvision.models import efficientnet_b3
 
 
 st.set_page_config(
-    page_title="SAMD-IS GAN Generator",
+    page_title="SAMD-IS GAN Generator + Classifier",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -63,10 +65,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 # ==============================================================
 # 1. MODEL ARCHITECTURE
 # ==============================================================
-
 
 class SelfAttention(nn.Module):
     def __init__(self, in_channels, max_tokens=4096):
@@ -80,10 +82,7 @@ class SelfAttention(nn.Module):
     def forward(self, x):
         batch, channels, height, width = x.shape
         stride = max(1, math.ceil(math.sqrt((height * width) / self.max_tokens)))
-        if stride > 1:
-            x_small = F.avg_pool2d(x, kernel_size=stride, stride=stride)
-        else:
-            x_small = x
+        x_small = F.avg_pool2d(x, kernel_size=stride, stride=stride) if stride > 1 else x
 
         b_small, _, h_small, w_small = x_small.shape
         q = self.q(x_small).view(b_small, -1, h_small * w_small).transpose(1, 2)
@@ -108,26 +107,31 @@ class Generator(nn.Module):
         self.input_dim = latent_dim + n_classes
         self.init_size = img_size // 16
 
-        self.l1 = nn.Linear(self.input_dim, 256 * self.init_size**2)
+        self.l1 = nn.Linear(self.input_dim, 256 * self.init_size ** 2)
 
         self.conv_blocks = nn.Sequential(
             nn.Upsample(scale_factor=2),
             nn.Conv2d(256, 256, 3, stride=1, padding=1),
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Upsample(scale_factor=2),
             nn.Conv2d(256, 128, 3, stride=1, padding=1),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Upsample(scale_factor=2),
             nn.Conv2d(128, 64, 3, stride=1, padding=1),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2, inplace=True),
+
             SelfAttention(64, max_tokens=1024),
+
             nn.Upsample(scale_factor=2),
             nn.Conv2d(64, 32, 3, stride=1, padding=1),
             nn.BatchNorm2d(32),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(32, channels, 3, stride=1, padding=1),
             nn.Tanh(),
         )
@@ -183,6 +187,7 @@ class Discriminator(nn.Module):
         batch_size, _, height, width = img.size()
         embedded = self.label_embedding(labels).view(batch_size, 16, 1, 1)
         embedded = embedded.expand(-1, -1, height, width)
+
         x = torch.cat([img, embedded], dim=1)
         x = self.forward_features(x)
         x = x.reshape(x.size(0), -1)
@@ -198,15 +203,19 @@ class TextureDiscriminator(Discriminator):
             nn.Conv2d(32, 32, 3, 1, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.AvgPool2d(2),
+
             nn.Conv2d(32, 64, 3, 1, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.AvgPool2d(2),
             nn.BatchNorm2d(64),
+
             nn.Conv2d(64, 128, 3, 1, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.AvgPool2d(2),
             nn.BatchNorm2d(128),
+
             SelfAttention(128, max_tokens=512),
+
             nn.Conv2d(128, 256, 3, 1, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.AvgPool2d(2),
@@ -220,12 +229,15 @@ class StructureDiscriminator(Discriminator):
         self.feature_extractor = nn.Sequential(
             nn.Conv2d(channels + 16, 32, 5, 2, 2),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(32, 64, 5, 2, 2),
             nn.LeakyReLU(0.2, inplace=True),
             nn.BatchNorm2d(64),
+
             nn.Conv2d(64, 128, 5, 2, 2),
             nn.LeakyReLU(0.2, inplace=True),
             nn.BatchNorm2d(128),
+
             nn.Conv2d(128, 256, 3, 2, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.BatchNorm2d(256),
@@ -238,27 +250,32 @@ class ColorDiscriminator(Discriminator):
         self.feature_extractor = nn.Sequential(
             nn.Conv2d(channels + 16, 64, 1),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(64, 128, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.AvgPool2d(4),
+
             nn.Conv2d(128, 256, 3, 2, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.BatchNorm2d(256),
+
             nn.Conv2d(256, 512, 3, 2, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.BatchNorm2d(512),
+
             nn.AdaptiveAvgPool2d(1),
         )
 
 
 # ==============================================================
-# 2. APP CONFIGURATION
+# 2. CONFIGURATION
 # ==============================================================
 
 GENERATOR_PATH = "G_epoch300.pth"
-D_TEXTURE_PATH = "D_texture_epoch500.pth"
-D_STRUCTURE_PATH = "D_structure_epoch500.pth"
-D_COLOR_PATH = "D_color_epoch500.pth"
+D_TEXTURE_PATH = "D_texture_finetuned.pth"
+D_STRUCTURE_PATH = "D_structure_finetuned.pth"
+D_COLOR_PATH = "D_color_finetuned.pth"
+CLASSIFIER_PATH = "efficientnet_baseline_best.pth" 
 
 LATENT_DIM = 100
 NUM_CLASSES = 6
@@ -277,24 +294,49 @@ CLASS_NAMES = {
 }
 
 
-def _normalize_state_dict(obj):
-    if isinstance(obj, dict):
-        if "state_dict" in obj and isinstance(obj["state_dict"], dict):
-            obj = obj["state_dict"]
-        elif "generator" in obj and isinstance(obj["generator"], dict):
-            obj = obj["generator"]
-        elif "G" in obj and isinstance(obj["G"], dict):
-            obj = obj["G"]
+# ==============================================================
+# 3. LOADING HELPERS
+# ==============================================================
 
+def _strip_module_prefix(state_dict):
     cleaned = {}
-    for key, value in obj.items():
+    for key, value in state_dict.items():
         cleaned[key[7:] if key.startswith("module.") else key] = value
     return cleaned
 
 
+def _extract_state_dict(checkpoint):
+    if isinstance(checkpoint, nn.Module):
+        return checkpoint.state_dict()
+
+    if not isinstance(checkpoint, dict):
+        raise TypeError("Checkpoint is neither a state_dict dict nor an nn.Module.")
+
+    for key in ["model_state_dict", "state_dict", "model", "net", "generator", "G"]:
+        if key in checkpoint:
+            if isinstance(checkpoint[key], dict):
+                return _strip_module_prefix(checkpoint[key])
+            if isinstance(checkpoint[key], nn.Module):
+                return checkpoint[key].state_dict()
+
+    return _strip_module_prefix(checkpoint)
+
+
+def _safe_torch_load(path, map_location):
+    try:
+        return torch.load(path, map_location=map_location, weights_only=True)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
+    except Exception:
+        return torch.load(path, map_location=map_location, weights_only=False)
+
+
 @st.cache_resource(show_spinner=False)
-def load_models():
+def load_generator_and_discriminators():
     messages = []
+
+    if not os.path.exists(GENERATOR_PATH):
+        raise FileNotFoundError(f"Generator weights not found: {GENERATOR_PATH}")
 
     generator = Generator(
         latent_dim=LATENT_DIM,
@@ -303,7 +345,8 @@ def load_models():
         channels=CHANNELS,
     ).to(DEVICE)
 
-    generator_state = _normalize_state_dict(torch.load(GENERATOR_PATH, map_location=DEVICE))
+    generator_ckpt = _safe_torch_load(GENERATOR_PATH, DEVICE)
+    generator_state = _extract_state_dict(generator_ckpt)
     generator.load_state_dict(generator_state, strict=False)
     generator.eval()
 
@@ -321,7 +364,9 @@ def load_models():
 
         disc = disc_cls(IMG_SIZE, NUM_CLASSES, CHANNELS).to(DEVICE)
         disc.lock_feature_dim_and_initialize_fc()
-        disc_state = _normalize_state_dict(torch.load(path, map_location=DEVICE))
+
+        disc_ckpt = _safe_torch_load(path, DEVICE)
+        disc_state = _extract_state_dict(disc_ckpt)
         disc.load_state_dict(disc_state, strict=False)
         disc.eval()
         discriminators[name] = disc
@@ -334,13 +379,42 @@ def load_models():
     return generator, discriminators, messages
 
 
+@st.cache_resource(show_spinner=False)
+def load_classifier():
+    if not os.path.exists(CLASSIFIER_PATH):
+        raise FileNotFoundError(f"Classifier weights not found: {CLASSIFIER_PATH}")
+
+    checkpoint = _safe_torch_load(CLASSIFIER_PATH, DEVICE)
+
+    if isinstance(checkpoint, nn.Module):
+        model = checkpoint.to(DEVICE)
+        model.eval()
+        return model
+
+    model = efficientnet_b3(weights=None)
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, NUM_CLASSES)
+    model = model.to(DEVICE)
+
+    state_dict = _extract_state_dict(checkpoint)
+    model.load_state_dict(state_dict, strict=False)
+    model.eval()
+    return model
+
+
 # ==============================================================
-# 3. HELPERS
+# 4. INFERENCE HELPERS
 # ==============================================================
+
+classifier_transform = transforms.Compose([
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5] * 3, [0.5] * 3),
+])
 
 
 def tensor_to_pil(img_tensor):
     img_tensor = (img_tensor + 1) / 2.0
+    img_tensor = img_tensor.clamp(0, 1)
     return TF.to_pil_image(img_tensor).resize((256, 256), Image.NEAREST)
 
 
@@ -356,9 +430,11 @@ def create_zip_of_images(images, labels, seed_a, seed_b):
         for i, img_tensor in enumerate(images):
             img_pil = tensor_to_pil(img_tensor)
             file_name = f"Image_{i}_Class{labels}_Seed{seed_a}-{seed_b}.png"
+
             img_bytes = io.BytesIO()
             img_pil.save(img_bytes, format="PNG")
             zf.writestr(file_name, img_bytes.getvalue())
+
     return zip_buffer.getvalue()
 
 
@@ -370,8 +446,10 @@ def image_quality_score(img_tensor, label):
     grad_y = img[:, :, :, 1:] - img[:, :, :, :-1]
     edge_score = torch.mean(torch.abs(grad_x)) + torch.mean(torch.abs(grad_y))
     spatial_std = torch.std(img, dim=[2, 3]).mean()
+
     mean_brightness = torch.mean(img)
     brightness_penalty = torch.abs(mean_brightness - 0.45)
+
     corner_tl = img[:, :, :8, :8].mean()
     corner_br = img[:, :, -8:, -8:].mean()
     black_border_penalty = torch.exp(-10 * (corner_tl + corner_br) / 2)
@@ -442,39 +520,63 @@ def rank_generated_images(generated_imgs, labels, label_index, discriminators, r
         heuristic_scores.append(image_quality_score(generated_imgs[i].unsqueeze(0), label_index).item())
 
     ordered = sorted(range(len(heuristic_scores)), key=lambda idx: heuristic_scores[idx], reverse=True)
-    disc_scores = {
-        "combined": torch.tensor(heuristic_scores),
-        "texture": torch.tensor(heuristic_scores),
-        "structure": torch.tensor(heuristic_scores),
-        "color": torch.tensor(heuristic_scores),
+    heuristic_tensor = torch.tensor(heuristic_scores)
+    return ordered, {
+        "combined": heuristic_tensor,
+        "texture": heuristic_tensor,
+        "structure": heuristic_tensor,
+        "color": heuristic_tensor,
     }
-    return ordered, disc_scores
+
+
+@torch.no_grad()
+def classify_pil_image(model, image_pil):
+    image = image_pil.convert("RGB")
+    x = classifier_transform(image).unsqueeze(0).to(DEVICE)
+
+    logits = model(x)
+    probs = torch.softmax(logits, dim=1)[0]
+    pred_idx = int(torch.argmax(probs).item())
+
+    return pred_idx, probs.cpu()
 
 
 # ==============================================================
-# 4. UI
+# 5. APP UI
 # ==============================================================
 
-st.title("SAMD-IS CGAN Generator")
+st.title("SAMD-IS CGAN Generator + Classifier")
 st.markdown(
-    "<p style='text-align: center; color: #7F8C8D;'>Generate synthetic skin condition images and <b>morph</b> between them in real-time.</p>",
+    "<p style='text-align: center; color: #7F8C8D;'>Generate synthetic skin condition images, rank them with your discriminators, and classify uploaded images with EfficientNet-B3.</p>",
     unsafe_allow_html=True,
 )
 st.divider()
 
 try:
-    generator, discriminators, load_messages = load_models()
+    generator, discriminators, load_messages = load_generator_and_discriminators()
 except Exception as exc:
-    st.error(f"Failed to load generator or discriminator weights: {exc}")
+    st.error(f"Failed to load generator/discriminators: {exc}")
     st.stop()
 
-for msg in load_messages:
-    st.sidebar.warning(msg)
+classifier_model = None
+classifier_error = None
+try:
+    classifier_model = load_classifier()
+except Exception as exc:
+    classifier_error = str(exc)
+
+for message in load_messages:
+    st.sidebar.warning(message)
 
 if len(discriminators) == 3:
     st.sidebar.success("Generator + all 3 discriminators loaded")
 else:
     st.sidebar.info("Generator loaded. Discriminator ranking is partially unavailable.")
+
+if classifier_model is not None:
+    st.sidebar.success("Classifier loaded")
+else:
+    st.sidebar.warning(f"Classifier unavailable: {classifier_error}")
 
 if "seed_a" not in st.session_state:
     st.session_state.seed_a = 42
@@ -499,6 +601,7 @@ show_scores = st.sidebar.checkbox("Show ranking scores", value=True)
 
 st.sidebar.divider()
 st.sidebar.subheader("Morphing Controls")
+
 if st.sidebar.button("Generate New Samples"):
     st.session_state.seed_a = random.randint(0, 10000)
     st.session_state.seed_b = random.randint(0, 10000)
@@ -519,7 +622,7 @@ alpha = st.sidebar.slider(
 )
 
 # ==============================================================
-# 5. GENERATION + CHERRY PICKING
+# 6. GENERATION
 # ==============================================================
 
 torch.manual_seed(seed_a)
@@ -554,7 +657,7 @@ selected_scores = {
 }
 
 # ==============================================================
-# 6. DISPLAY
+# 7. DISPLAY
 # ==============================================================
 
 st.markdown(
@@ -570,7 +673,7 @@ elif alpha == 1.0:
 else:
     st.caption(f"Morphing: **{int(alpha * 100)}%** transition from Seed {seed_a} to {seed_b}")
 
-tab_grid, tab_single = st.tabs(["Grid View", "Single Focus"])
+tab_grid, tab_single, tab_classifier = st.tabs(["Grid View", "Single Focus", "Classifier"])
 
 with tab_grid:
     zip_bytes = create_zip_of_images(generated_imgs, label_index, seed_a, seed_b)
@@ -601,6 +704,7 @@ with tab_grid:
 
 with tab_single:
     col_select, col_display = st.columns([1, 3])
+
     with col_select:
         st.info("Select an image from the batch to inspect its specific morphing path.")
         selected_idx = st.selectbox("Choose Image Number", range(num_images))
@@ -646,6 +750,40 @@ with tab_single:
         with c3:
             st.caption("Target (Seed B)")
             st.image(tensor_to_pil(img_target[0]), use_container_width=True)
+
+with tab_classifier:
+    st.subheader("Skin Condition Classifier")
+
+    if classifier_model is None:
+        st.error(f"Classifier failed to load: {classifier_error}")
+    else:
+        uploaded_file = st.file_uploader(
+            "Upload a skin image",
+            type=["jpg", "jpeg", "png"],
+            key="classifier_upload",
+        )
+
+        if uploaded_file is not None:
+            uploaded_image = Image.open(uploaded_file).convert("RGB")
+
+            col_img, col_pred = st.columns([1, 1])
+
+            with col_img:
+                st.image(uploaded_image, caption="Uploaded image", use_container_width=True)
+
+            with col_pred:
+                pred_idx, probs = classify_pil_image(classifier_model, uploaded_image)
+                st.success(f"Prediction: {CLASS_NAMES[pred_idx]}")
+                st.write(f"Confidence: {probs[pred_idx].item() * 100:.2f}%")
+
+                top_probs, top_idxs = torch.topk(probs, k=3)
+                st.markdown("**Top 3 predictions**")
+                for rank, (prob, idx) in enumerate(zip(top_probs.tolist(), top_idxs.tolist()), start=1):
+                    st.write(f"{rank}. {CLASS_NAMES[idx]} — {prob * 100:.2f}%")
+
+                st.markdown("**All class probabilities**")
+                for idx in range(NUM_CLASSES):
+                    st.caption(f"{CLASS_NAMES[idx]}: {probs[idx].item() * 100:.2f}%")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Created by:**")
