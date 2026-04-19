@@ -293,6 +293,16 @@ CLASS_NAMES = {
     5: "Brown Skin - Healthy",
 }
 
+CLASSIFIER_PATH = "efficientnet_baseline_best.pth"
+CLASSIFIER_NUM_CLASSES = 4
+
+CLASSIFIER_CLASS_NAMES = {
+    0: "Class 0",
+    1: "Class 1",
+    2: "Class 2",
+    3: "Class 3",
+}
+
 
 # ==============================================================
 # 3. LOADING HELPERS
@@ -380,26 +390,29 @@ def load_generator_and_discriminators():
 
 
 @st.cache_resource(show_spinner=False)
-def load_classifier():
-    if not os.path.exists(CLASSIFIER_PATH):
-        raise FileNotFoundError(f"Classifier weights not found: {CLASSIFIER_PATH}")
+def load_classifier(classifier_path):
+    if not os.path.exists(classifier_path):
+        raise FileNotFoundError(f"Classifier weights not found: {classifier_path}")
 
-    checkpoint = _safe_torch_load(CLASSIFIER_PATH, DEVICE)
+    checkpoint = _safe_torch_load(classifier_path, DEVICE)
 
     if isinstance(checkpoint, nn.Module):
         model = checkpoint.to(DEVICE)
         model.eval()
         return model
 
+    state_dict = _extract_state_dict(checkpoint)
+
     model = efficientnet_b3(weights=None)
-    model.classifier[1] = nn.Linear(model.classifier[1].in_features, NUM_CLASSES)
+    model.classifier[1] = nn.Linear(
+        model.classifier[1].in_features,
+        CLASSIFIER_NUM_CLASSES
+    )
     model = model.to(DEVICE)
 
-    state_dict = _extract_state_dict(checkpoint)
-    model.load_state_dict(state_dict, strict=False)
+    model.load_state_dict(state_dict, strict=True)
     model.eval()
     return model
-
 
 # ==============================================================
 # 4. INFERENCE HELPERS
@@ -560,8 +573,9 @@ except Exception as exc:
 
 classifier_model = None
 classifier_error = None
+
 try:
-    classifier_model = load_classifier()
+    classifier_model = load_classifier(CLASSIFIER_PATH)
 except Exception as exc:
     classifier_error = str(exc)
 
@@ -763,27 +777,34 @@ with tab_classifier:
             key="classifier_upload",
         )
 
-        if uploaded_file is not None:
-            uploaded_image = Image.open(uploaded_file).convert("RGB")
+    if uploaded_file is not None:
+        uploaded_image = Image.open(uploaded_file).convert("RGB")
 
-            col_img, col_pred = st.columns([1, 1])
+        col_img, col_pred = st.columns([1, 1])
 
-            with col_img:
-                st.image(uploaded_image, caption="Uploaded image", use_container_width=True)
+        with col_img:
+            st.image(uploaded_image, caption="Uploaded image", use_container_width=True)
 
-            with col_pred:
-                pred_idx, probs = classify_pil_image(classifier_model, uploaded_image)
-                st.success(f"Prediction: {CLASS_NAMES[pred_idx]}")
-                st.write(f"Confidence: {probs[pred_idx].item() * 100:.2f}%")
+        with col_pred:
+            pred_idx, probs = classify_pil_image(classifier_model, uploaded_image)
 
-                top_probs, top_idxs = torch.topk(probs, k=3)
-                st.markdown("**Top 3 predictions**")
-                for rank, (prob, idx) in enumerate(zip(top_probs.tolist(), top_idxs.tolist()), start=1):
-                    st.write(f"{rank}. {CLASS_NAMES[idx]} — {prob * 100:.2f}%")
+            st.success(
+                f"Prediction: {CLASSIFIER_CLASS_NAMES.get(pred_idx, f'Class {pred_idx}')}"
+            )
+            st.write(f"Confidence: {probs[pred_idx].item() * 100:.2f}%")
 
-                st.markdown("**All class probabilities**")
-                for idx in range(NUM_CLASSES):
-                    st.caption(f"{CLASS_NAMES[idx]}: {probs[idx].item() * 100:.2f}%")
+            top_k = min(3, CLASSIFIER_NUM_CLASSES)
+            top_probs, top_idxs = torch.topk(probs, k=top_k)
+
+            st.markdown("**Top predictions**")
+            for rank, (prob, idx) in enumerate(zip(top_probs.tolist(), top_idxs.tolist()), start=1):
+                label_name = CLASSIFIER_CLASS_NAMES.get(idx, f"Class {idx}")
+                st.write(f"{rank}. {label_name} — {prob * 100:.2f}%")
+
+            st.markdown("**All class probabilities**")
+            for idx in range(CLASSIFIER_NUM_CLASSES):
+                label_name = CLASSIFIER_CLASS_NAMES.get(idx, f"Class {idx}")
+                st.caption(f"{label_name}: {probs[idx].item() * 100:.2f}%")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Created by:**")
