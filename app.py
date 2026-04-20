@@ -15,7 +15,7 @@ from torchvision.models import efficientnet_b3
 
 
 st.set_page_config(
-    page_title="SAMD-IS GAN Generator + Classifier",
+    page_title="SAMD-IS — Synthetic Skin Image Generator",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -23,42 +23,261 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-    h1 {
-        color: #2C3E50;
-        text-align: center;
-        font-family: 'Helvetica Neue', sans-serif;
-        font-weight: 700;
-        margin-bottom: 10px;
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+    /* ── Global ── */
+    html, body, [class*="css"] {
+        font-family: 'DM Sans', sans-serif;
     }
 
+    /* ── Hide default Streamlit branding ── */
+    #MainMenu, footer { visibility: hidden; }
+
+    /* ── Main area ── */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+        max-width: 1200px;
+    }
+
+    /* ── Page header ── */
+    .samdis-header {
+        border-bottom: 2px solid #1a1a1a;
+        padding-bottom: 1rem;
+        margin-bottom: 1.75rem;
+    }
+    .samdis-header h1 {
+        font-family: 'DM Mono', monospace;
+        font-size: 1.35rem;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        color: #1a1a1a;
+        margin: 0 0 0.2rem 0;
+        text-transform: uppercase;
+    }
+    .samdis-header p {
+        font-size: 0.875rem;
+        color: #6b6b6b;
+        margin: 0;
+        font-weight: 300;
+    }
+
+    /* ── Sidebar ── */
     [data-testid="stSidebar"] {
-        background-color: #F8F9F9;
-        border-right: 1px solid #E5E8E8;
+        background-color: #f7f6f3;
+        border-right: 1px solid #e0ddd8;
+    }
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stCaption {
+        font-size: 0.8rem;
+        color: #444;
+    }
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        font-size: 0.7rem;
+        font-family: 'DM Mono', monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #888;
+        margin-bottom: 0.5rem;
     }
 
+    /* ── Sidebar section dividers ── */
+    .sidebar-section-label {
+        font-family: 'DM Mono', monospace;
+        font-size: 0.65rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #aaa;
+        margin: 1.2rem 0 0.4rem 0;
+        padding-bottom: 0.3rem;
+        border-bottom: 1px solid #e0ddd8;
+    }
+
+    /* ── All buttons ── */
     div.stButton > button {
-        background-color: #27AE60;
-        color: white;
-        font-size: 16px;
-        font-weight: bold;
-        border-radius: 8px;
-        border: none;
-        padding: 0.5rem 1rem;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.8rem;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        background-color: #1a1a1a;
+        color: #f5f5f2;
+        border: 1px solid #1a1a1a;
+        border-radius: 4px;
+        padding: 0.45rem 1.1rem;
         width: 100%;
-        transition: all 0.3s ease;
+        transition: background-color 0.15s ease, color 0.15s ease;
     }
-
     div.stButton > button:hover {
-        background-color: #219150;
-        color: white;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        background-color: #333;
+        color: #fff;
+        border-color: #333;
+        box-shadow: none;
+    }
+    div.stButton > button:active {
+        background-color: #000;
     }
 
-    [data-testid="stBaseButton-secondary"] {
-        background-color: #ffffff;
+    /* ── Download buttons ── */
+    [data-testid="stDownloadButton"] button {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        font-weight: 400;
+        background-color: transparent;
+        color: #1a1a1a;
+        border: 1px solid #c0bdb8;
+        border-radius: 4px;
+        padding: 0.4rem 0.9rem;
+        transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    [data-testid="stDownloadButton"] button:hover {
+        border-color: #1a1a1a;
+        background-color: #f0efec;
+    }
+
+    /* ── Tabs ── */
+    [data-testid="stTabs"] [role="tablist"] {
+        border-bottom: 1px solid #e0ddd8;
+        gap: 0;
+    }
+    [data-testid="stTabs"] button[role="tab"] {
+        font-family: 'DM Mono', monospace;
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #888;
+        border-radius: 0;
+        padding: 0.5rem 1.25rem;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+    }
+    [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+        color: #1a1a1a;
+        border-bottom: 2px solid #1a1a1a;
+        font-weight: 500;
+    }
+
+    /* ── Metric ── */
+    [data-testid="stMetric"] {
+        background: #f7f6f3;
+        border: 1px solid #e0ddd8;
+        border-radius: 4px;
+        padding: 0.75rem 1rem;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.7rem !important;
+        color: #888 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-family: 'DM Mono', monospace;
+    }
+    [data-testid="stMetricValue"] {
+        font-family: 'DM Mono', monospace;
+        font-size: 1.3rem !important;
+        color: #1a1a1a !important;
+    }
+
+    /* ── Score caption under images ── */
+    .score-row {
+        font-family: 'DM Mono', monospace;
+        font-size: 0.65rem;
+        color: #888;
+        text-align: center;
+        margin-top: 0.2rem;
+        letter-spacing: 0.02em;
+    }
+
+    /* ── Result header ── */
+    .result-condition {
+        font-family: 'DM Mono', monospace;
+        font-size: 0.75rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #888;
+        margin-bottom: 0.15rem;
+    }
+    .result-condition span {
+        color: #1a1a1a;
+        font-weight: 500;
+    }
+    .result-meta {
+        font-size: 0.8rem;
+        color: #6b6b6b;
+        margin-bottom: 1rem;
+    }
+
+    /* ── Image captions ── */
+    .img-label {
+        font-family: 'DM Mono', monospace;
+        font-size: 0.65rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #aaa;
+        margin-bottom: 0.3rem;
+    }
+
+    /* ── Status indicators ── */
+    .status-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 1.2rem;
+    }
+    .status-pill {
+        font-family: 'DM Mono', monospace;
+        font-size: 0.65rem;
+        letter-spacing: 0.05em;
+        padding: 0.2rem 0.6rem;
+        border-radius: 2px;
+        display: inline-block;
+    }
+    .status-ok   { background: #e8f5e8; color: #2d6a2d; border: 1px solid #b8ddb8; }
+    .status-warn { background: #fdf6e3; color: #7a5c00; border: 1px solid #e8d88a; }
+    .status-err  { background: #fdecea; color: #8b1f1f; border: 1px solid #e8b8b8; }
+
+    /* ── Selectbox / number_input / radio / slider labels ── */
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] label,
+    [data-testid="stSidebar"] [data-testid="stNumberInput"] label,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label,
+    [data-testid="stSidebar"] [data-testid="stSlider"] label,
+    [data-testid="stSidebar"] [data-testid="stCheckbox"] label {
+        font-size: 0.78rem !important;
+        font-weight: 500;
+        color: #333;
+    }
+
+    /* ── Top-K predictions table ── */
+    .pred-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+    .pred-table td {
+        font-size: 0.8rem;
+        padding: 0.35rem 0;
+        border-bottom: 1px solid #f0efec;
+        color: #333;
+    }
+    .pred-table td:last-child {
+        text-align: right;
+        font-family: 'DM Mono', monospace;
         color: #555;
-        border: 1px solid #ddd;
-        font-size: 14px;
+    }
+    .pred-table tr:first-child td { font-weight: 600; color: #1a1a1a; }
+
+    /* ── Info box replacement ── */
+    .plain-info {
+        background: #f7f6f3;
+        border-left: 3px solid #c0bdb8;
+        padding: 0.6rem 0.85rem;
+        font-size: 0.8rem;
+        color: #555;
+        border-radius: 0 3px 3px 0;
+        margin-bottom: 0.75rem;
+    }
+
+    /* ── Classifier upload area ── */
+    [data-testid="stFileUploader"] {
+        border: 1px dashed #c0bdb8 !important;
+        border-radius: 4px;
+        background: #faf9f7;
     }
 </style>
 """,
@@ -558,12 +777,15 @@ def classify_pil_image(model, image_pil):
 # 5. APP UI
 # ==============================================================
 
-st.title("SAMD-IS CGAN Generator + Classifier")
 st.markdown(
-    "<p style='text-align: center; color: #7F8C8D;'>Generate synthetic skin condition images, rank them with your discriminators, and classify uploaded images with EfficientNet-B3.</p>",
+    """
+    <div class="samdis-header">
+        <h1>SAMD-IS &mdash; Synthetic Dermatology Image System</h1>
+        <p>Conditional GAN image generation &middot; Discriminator ranking &middot; EfficientNet-B3 classification</p>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
-st.divider()
 
 try:
     generator, discriminators, load_messages = load_generator_and_discriminators()
@@ -582,57 +804,67 @@ except Exception as exc:
 for message in load_messages:
     st.sidebar.warning(message)
 
+# Model status pills
+status_html = '<div class="status-row">'
 if len(discriminators) == 3:
-    st.sidebar.success("Generator + all 3 discriminators loaded")
+    status_html += '<span class="status-pill status-ok">Generator</span>'
+    status_html += '<span class="status-pill status-ok">Texture D</span>'
+    status_html += '<span class="status-pill status-ok">Structure D</span>'
+    status_html += '<span class="status-pill status-ok">Color D</span>'
 else:
-    st.sidebar.info("Generator loaded. Discriminator ranking is partially unavailable.")
-
+    status_html += '<span class="status-pill status-ok">Generator</span>'
+    for d_name in ["texture", "structure", "color"]:
+        pill_cls = "status-ok" if d_name in discriminators else "status-warn"
+        status_html += f'<span class="status-pill {pill_cls}">{d_name.title()} D</span>'
 if classifier_model is not None:
-    st.sidebar.success("Classifier loaded")
+    status_html += '<span class="status-pill status-ok">Classifier</span>'
 else:
-    st.sidebar.warning(f"Classifier unavailable: {classifier_error}")
+    status_html += '<span class="status-pill status-warn">Classifier</span>'
+status_html += '</div>'
+st.sidebar.markdown(status_html, unsafe_allow_html=True)
+
+if classifier_model is None:
+    st.sidebar.caption(f"Classifier unavailable: {classifier_error}")
 
 if "seed_a" not in st.session_state:
     st.session_state.seed_a = 42
 if "seed_b" not in st.session_state:
     st.session_state.seed_b = 100
 
-st.sidebar.header("Settings")
+st.sidebar.markdown('<p class="sidebar-section-label">Generation</p>', unsafe_allow_html=True)
 label_index = st.sidebar.selectbox(
-    "Select Condition",
+    "Condition",
     options=list(range(NUM_CLASSES)),
     index=0,
     format_func=lambda x: CLASS_NAMES.get(x, f"Class {x}"),
 )
-num_images = st.sidebar.slider("Number of Images", 1, 8, 4)
+num_images = st.sidebar.slider("Images to display", 1, 8, 4)
 ranking_method = st.sidebar.radio(
-    "Ranking Method",
+    "Ranking method",
     ["Discriminator", "Heuristic"],
     index=0 if len(discriminators) == 3 else 1,
-    help="Discriminator uses your trained texture, structure, and color critics for cherry-picking.",
+    help="Discriminator uses the trained texture, structure, and color critics for cherry-picking.",
 )
-show_scores = st.sidebar.checkbox("Show ranking scores", value=True)
+show_scores = st.sidebar.checkbox("Show scores under images", value=True)
 
-st.sidebar.divider()
-st.sidebar.subheader("Morphing Controls")
+st.sidebar.markdown('<p class="sidebar-section-label">Latent Space / Morphing</p>', unsafe_allow_html=True)
 
-if st.sidebar.button("Generate New Samples"):
+if st.sidebar.button("Randomize seeds"):
     st.session_state.seed_a = random.randint(0, 10000)
     st.session_state.seed_b = random.randint(0, 10000)
 
 col_seed1, col_seed2 = st.sidebar.columns(2)
 with col_seed1:
-    seed_a = int(st.number_input("Start Seed", key="seed_a", step=1))
+    seed_a = int(st.number_input("Seed A", key="seed_a", step=1))
 with col_seed2:
-    seed_b = int(st.number_input("Target Seed", key="seed_b", step=1))
+    seed_b = int(st.number_input("Seed B", key="seed_b", step=1))
 
 alpha = st.sidebar.slider(
-    "Morph Factor",
+    "Morph factor  (0 = A, 1 = B)",
     min_value=0.0,
     max_value=1.0,
     value=0.0,
     step=0.05,
-    help="Slide to morph between the Start and Target seeds.",
 )
 
 # ==============================================================
@@ -674,29 +906,33 @@ selected_scores = {
 # 7. DISPLAY
 # ==============================================================
 
+# Build morph description
+if alpha == 0.0:
+    morph_desc = f"Seed A ({seed_a}) &mdash; no morphing applied"
+elif alpha == 1.0:
+    morph_desc = f"Seed B ({seed_b}) &mdash; fully morphed"
+else:
+    morph_desc = f"{int(alpha * 100)}% morph from Seed A ({seed_a}) to Seed B ({seed_b})"
+
 st.markdown(
-    f"### Results: <span style='color:#2E86C1'>{CLASS_NAMES.get(label_index, f'Class {label_index}')}</span>",
+    f"""
+    <p class="result-condition">Condition &nbsp;<span>{CLASS_NAMES.get(label_index, f'Class {label_index}')}</span></p>
+    <p class="result-meta">{morph_desc} &nbsp;&middot;&nbsp; Ranked by <strong>{ranking_method}</strong></p>
+    """,
     unsafe_allow_html=True,
 )
-st.caption(f"Ranking used: **{ranking_method}**")
 
-if alpha == 0.0:
-    st.caption(f"Showing pure **Start Seed ({seed_a})**")
-elif alpha == 1.0:
-    st.caption(f"Showing pure **Target Seed ({seed_b})**")
-else:
-    st.caption(f"Morphing: **{int(alpha * 100)}%** transition from Seed {seed_a} to {seed_b}")
-
-tab_grid, tab_single, tab_classifier = st.tabs(["Grid View", "Single Focus", "Classifier"])
+tab_grid, tab_single, tab_classifier = st.tabs(["Grid", "Single image", "Classifier"])
 
 with tab_grid:
     zip_bytes = create_zip_of_images(generated_imgs, label_index, seed_a, seed_b)
     st.download_button(
-        label="Download All Images (ZIP)",
+        label="Download batch as ZIP",
         data=zip_bytes,
         file_name=f"Batch_Class{label_index}_Seed{seed_a}-{seed_b}.zip",
         mime="application/zip",
     )
+    st.write("")
 
     cols = st.columns(4)
     for i, img_tensor in enumerate(generated_imgs):
@@ -704,33 +940,34 @@ with tab_grid:
         with cols[i % 4]:
             st.image(img_pil, use_container_width=True)
             if show_scores:
-                st.caption(f"Score: {selected_scores['combined'][i]:.4f}")
+                combined_val = selected_scores['combined'][i]
+                score_line = f"{combined_val:.4f}"
                 if ranking_method == "Discriminator" and len(discriminators) == 3:
-                    st.caption(
-                        " | ".join(
-                            [
-                                f"T {selected_scores['texture'][i]:.3f}",
-                                f"S {selected_scores['structure'][i]:.3f}",
-                                f"C {selected_scores['color'][i]:.3f}",
-                            ]
-                        )
+                    score_line += (
+                        f"  ·  T {selected_scores['texture'][i]:.3f}"
+                        f"  S {selected_scores['structure'][i]:.3f}"
+                        f"  C {selected_scores['color'][i]:.3f}"
                     )
+                st.markdown(f'<p class="score-row">{score_line}</p>', unsafe_allow_html=True)
 
 with tab_single:
     col_select, col_display = st.columns([1, 3])
 
     with col_select:
-        st.info("Select an image from the batch to inspect its specific morphing path.")
-        selected_idx = st.selectbox("Choose Image Number", range(num_images))
+        st.markdown('<div class="plain-info">Select an image from the batch to inspect its morphing path and scores.</div>', unsafe_allow_html=True)
+        selected_idx = st.selectbox("Image index", range(num_images))
         if show_scores:
-            st.metric("Selected score", f"{selected_scores['combined'][selected_idx]:.4f}")
+            st.metric("Combined score", f"{selected_scores['combined'][selected_idx]:.4f}")
             if ranking_method == "Discriminator" and len(discriminators) == 3:
-                st.write(
-                    {
-                        "texture": round(selected_scores["texture"][selected_idx], 4),
-                        "structure": round(selected_scores["structure"][selected_idx], 4),
-                        "color": round(selected_scores["color"][selected_idx], 4),
-                    }
+                st.markdown(
+                    f"""
+                    <table class="pred-table" style="margin-top:0.75rem">
+                        <tr><td>Texture</td><td>{selected_scores['texture'][selected_idx]:.4f}</td></tr>
+                        <tr><td>Structure</td><td>{selected_scores['structure'][selected_idx]:.4f}</td></tr>
+                        <tr><td>Color</td><td>{selected_scores['color'][selected_idx]:.4f}</td></tr>
+                    </table>
+                    """,
+                    unsafe_allow_html=True,
                 )
 
     with col_display:
@@ -746,15 +983,15 @@ with tab_single:
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.caption("Start (Seed A)")
+            st.markdown('<p class="img-label">Seed A</p>', unsafe_allow_html=True)
             st.image(tensor_to_pil(img_start[0]), use_container_width=True)
 
         with c2:
-            st.caption("Current Morph")
+            st.markdown('<p class="img-label">Current morph</p>', unsafe_allow_html=True)
             main_pil = tensor_to_pil(img_current[0])
             st.image(main_pil, use_container_width=True)
             st.download_button(
-                label="Download Current Morph",
+                label="Download this image",
                 data=convert_pil_to_bytes(main_pil),
                 file_name=f"Focus_Img_{selected_idx}_Morph{int(alpha * 100)}.png",
                 mime="image/png",
@@ -762,17 +999,15 @@ with tab_single:
             )
 
         with c3:
-            st.caption("Target (Seed B)")
+            st.markdown('<p class="img-label">Seed B</p>', unsafe_allow_html=True)
             st.image(tensor_to_pil(img_target[0]), use_container_width=True)
 
 with tab_classifier:
-    st.subheader("Skin Condition Classifier")
-
     if classifier_model is None:
         st.error(f"Classifier failed to load: {classifier_error}")
     else:
         uploaded_file = st.file_uploader(
-            "Upload a skin image",
+            "Upload a skin image (JPG or PNG)",
             type=["jpg", "jpeg", "png"],
             key="classifier_upload",
         )
@@ -783,29 +1018,55 @@ with tab_classifier:
         col_img, col_pred = st.columns([1, 1])
 
         with col_img:
-            st.image(uploaded_image, caption="Uploaded image", use_container_width=True)
+            st.image(uploaded_image, use_container_width=True)
 
         with col_pred:
             pred_idx, probs = classify_pil_image(classifier_model, uploaded_image)
+            pred_name = CLASSIFIER_CLASS_NAMES.get(pred_idx, f'Class {pred_idx}')
+            conf_pct = probs[pred_idx].item() * 100
 
-            st.success(
-                f"Prediction: {CLASSIFIER_CLASS_NAMES.get(pred_idx, f'Class {pred_idx}')}"
+            st.markdown(
+                f"""
+                <p style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.1em;
+                   text-transform:uppercase;color:#888;margin-bottom:0.3rem;">Prediction</p>
+                <p style="font-size:1.15rem;font-weight:600;color:#1a1a1a;margin-bottom:0.1rem;">{pred_name}</p>
+                <p style="font-family:'DM Mono',monospace;font-size:0.85rem;color:#555;margin-bottom:1.5rem;">{conf_pct:.1f}% confidence</p>
+                """,
+                unsafe_allow_html=True,
             )
-            st.write(f"Confidence: {probs[pred_idx].item() * 100:.2f}%")
 
             top_k = min(3, CLASSIFIER_NUM_CLASSES)
             top_probs, top_idxs = torch.topk(probs, k=top_k)
 
-            st.markdown("**Top predictions**")
+            rows = ""
             for rank, (prob, idx) in enumerate(zip(top_probs.tolist(), top_idxs.tolist()), start=1):
                 label_name = CLASSIFIER_CLASS_NAMES.get(idx, f"Class {idx}")
-                st.write(f"{rank}. {label_name} — {prob * 100:.2f}%")
+                rows += f"<tr><td>{label_name}</td><td>{prob * 100:.1f}%</td></tr>"
 
-            st.markdown("**All class probabilities**")
+            st.markdown(
+                f"""
+                <p style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.1em;
+                   text-transform:uppercase;color:#888;margin-bottom:0.5rem;">Top predictions</p>
+                <table class="pred-table">{rows}</table>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.write("")
+            all_rows = ""
             for idx in range(CLASSIFIER_NUM_CLASSES):
                 label_name = CLASSIFIER_CLASS_NAMES.get(idx, f"Class {idx}")
-                st.caption(f"{label_name}: {probs[idx].item() * 100:.2f}%")
+                pct = probs[idx].item() * 100
+                all_rows += f"<tr><td>{label_name}</td><td>{pct:.2f}%</td></tr>"
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Created by:**")
-st.sidebar.caption("Maria Rafaela Pelagio \n Sophia Danielle Salta\n Veneza Vielle Vergara")
+            st.markdown(
+                f"""
+                <p style="font-family:'DM Mono',monospace;font-size:0.65rem;letter-spacing:0.1em;
+                   text-transform:uppercase;color:#888;margin-bottom:0.5rem;">All classes</p>
+                <table class="pred-table">{all_rows}</table>
+                """,
+                unsafe_allow_html=True,
+            )
+
+st.sidebar.markdown('<p class="sidebar-section-label">Authors</p>', unsafe_allow_html=True)
+st.sidebar.caption("Maria Rafaela Pelagio\nSophia Danielle Salta\nVeneza Vielle Vergara")
